@@ -27,7 +27,9 @@ const upload = multer({
 
 const ROOT_DIR = __dirname;
 const WORK_DIR = path.join(ROOT_DIR, "work");
+// Garante que a pasta uploads também exista para o Multer não falhar
 fs.ensureDirSync(WORK_DIR);
+fs.ensureDirSync(path.join(ROOT_DIR, "uploads"));
 
 const GS_PATH = process.env.GHOSTSCRIPT_PATH || "gswin64c";
 const SOFFICE_PATH = process.env.LIBREOFFICE_PATH || "soffice";
@@ -68,8 +70,6 @@ async function ensureBaseFiles() {
   await ensureExecutableExists(GS_PATH, "Ghostscript");
   await ensureExecutableExists(ICC_PROFILE_PATH, "ICC profile");
   await ensureExecutableExists(PDFA_DEF_PATH, "PDFA_def.ps");
-
-  // LibreOffice só é exigido para arquivos não-PDF
 }
 
 async function convertOfficeToPdf(inputPath, outputDir) {
@@ -111,6 +111,7 @@ async function buildPdfaDefFromTemplate(jobDir) {
 async function convertPdfToPdfA2b(inputPdf, outputPdf, renderedPdfaDefPath) {
   const args = [
     "-dPDFA=2",
+    "-dPDFACompatibilityPolicy=1", // CORREÇÃO: Força o Ghostscript a abortar/alertar se algo ferir o PDF/A
     "-dBATCH",
     "-dNOPAUSE",
     "-dSAFER",
@@ -238,12 +239,13 @@ async function processOneFile(file, batchDir) {
   }
 }
 
+// CORREÇÃO: Removido o 'async' do construtor da Promise e envolvido a lógica assíncrona em um bloco auto-executável (IIFE).
 async function buildZipFromResults(results, batchDir) {
   const zipPath = path.join(batchDir, "resultado-lote.zip");
   const output = fs.createWriteStream(zipPath);
   const archive = archiver("zip", { zlib: { level: 9 } });
 
-  return new Promise(async (resolve, reject) => {
+  return new Promise((resolve, reject) => {
     output.on("close", () => resolve(zipPath));
     archive.on("error", (err) => reject(err));
 
@@ -271,17 +273,23 @@ async function buildZipFromResults(results, batchDir) {
 
     archive.append(JSON.stringify(report, null, 2), { name: "report.json" });
 
-    for (const item of results) {
-      if (!item.outputPdfPath || !(await fs.pathExists(item.outputPdfPath))) continue;
+    // Lógica assíncrona executada com segurança
+    (async () => {
+      try {
+        for (const item of results) {
+          if (!item.outputPdfPath || !(await fs.pathExists(item.outputPdfPath))) continue;
 
-      if (item.status === "passed") {
-        archive.file(item.outputPdfPath, { name: `passed/${item.outputPdfName}` });
-      } else {
-        archive.file(item.outputPdfPath, { name: `failed-validation/${item.outputPdfName}` });
+          if (item.status === "passed") {
+            archive.file(item.outputPdfPath, { name: `passed/${item.outputPdfName}` });
+          } else {
+            archive.file(item.outputPdfPath, { name: `failed-validation/${item.outputPdfName}` });
+          }
+        }
+        await archive.finalize();
+      } catch (error) {
+        reject(error);
       }
-    }
-
-    await archive.finalize();
+    })();
   });
 }
 
