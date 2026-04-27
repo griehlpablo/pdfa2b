@@ -31,7 +31,7 @@ const WORK_DIR = path.join(ROOT_DIR, "work");
 fs.ensureDirSync(WORK_DIR);
 fs.ensureDirSync(path.join(ROOT_DIR, "uploads"));
 
-const GS_PATH = process.env.GHOSTSCRIPT_PATH || "gswin64c";
+const GS_PATH = "C:\\Program Files\\gs\\gs10.07.0\\bin\\gswin64c.exe";
 const SOFFICE_PATH = process.env.LIBREOFFICE_PATH || "soffice";
 const VERAPDF_PATH = process.env.VERAPDF_PATH || "verapdf.bat";
 
