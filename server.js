@@ -233,6 +233,7 @@ async function processOneFile(file, batchDir) {
 
     return result;
   } catch (error) {
+    console.error(`\n🚨 ERRO CRÍTICO no processamento de "${originalName}":`, error.message);
     result.status = "error";
     result.message = error.message || "Erro ao processar o arquivo.";
     return result;
@@ -315,6 +316,14 @@ app.post("/convert-batch", upload.array("files", 50), async (req, res) => {
     const anyGenerated = results.some(r => r.outputPdfPath);
 
     if (!anyGenerated) {
+      console.log("\n❌ ERRO NO LOTE: Nenhum arquivo foi convertido. Veja os detalhes abaixo:");
+      results.forEach(r => {
+        console.log(`\n📄 Arquivo: ${r.originalName}`);
+        console.log(`   Status: ${r.status}`);
+        console.log(`   Motivo do erro: ${r.message}`);
+      });
+      console.log("\n---------------------------------------------------");
+
       return res.status(400).json({
         error: "Nenhum PDF foi gerado no lote.",
         details: results
