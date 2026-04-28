@@ -35,7 +35,7 @@ const GS_PATH = "C:\\Program Files\\gs\\gs10.07.0\\bin\\gswin64c.exe";
 const SOFFICE_PATH = process.env.LIBREOFFICE_PATH || "soffice";
 const VERAPDF_PATH = process.env.VERAPDF_PATH || "verapdf.bat";
 
-const ICC_PROFILE_PATH = path.resolve(ROOT_DIR, process.env.ICC_PROFILE_PATH || "./color/sRGB.icc");
+const ICC_PROFILE_PATH = "C:\\Windows\\System32\\spool\\drivers\\color\\sRGB Color Space Profile.icm";
 const PDFA_DEF_PATH = path.resolve(ROOT_DIR, process.env.PDFA_DEF_PATH || "./config/PDFA_def.ps");
 
 function normalizeWindowsPathForPostScript(filePath) {
