@@ -27,16 +27,15 @@ const upload = multer({
 
 const ROOT_DIR = __dirname;
 const WORK_DIR = path.join(ROOT_DIR, "work");
-// Garante que a pasta uploads também exista para o Multer não falhar
 fs.ensureDirSync(WORK_DIR);
 fs.ensureDirSync(path.join(ROOT_DIR, "uploads"));
 
+// Caminhos configurados para o seu computador
 const GS_PATH = "C:\\Program Files\\gs\\gs10.07.0\\bin\\gswin64c.exe";
-const SOFFICE_PATH = process.env.LIBREOFFICE_PATH || "soffice";
-const VERAPDF_PATH = process.env.VERAPDF_PATH || "verapdf.bat";
-
+const SOFFICE_PATH = "soffice"; 
+const VERAPDF_PATH = "C:\\Users\\Unespar\\verapdf\\verapdf.bat"; 
 const ICC_PROFILE_PATH = "C:\\Windows\\System32\\spool\\drivers\\color\\sRGB Color Space Profile.icm";
-const PDFA_DEF_PATH = path.resolve(ROOT_DIR, process.env.PDFA_DEF_PATH || "./config/PDFA_def.ps");
+const PDFA_DEF_PATH = path.resolve(ROOT_DIR, "./config/PDFA_def.ps");
 
 function normalizeWindowsPathForPostScript(filePath) {
   return filePath.replace(/\\/g, "/");
@@ -75,15 +74,7 @@ async function ensureBaseFiles() {
 async function convertOfficeToPdf(inputPath, outputDir) {
   await ensureExecutableExists(SOFFICE_PATH, "LibreOffice");
 
-  const args = [
-    "--headless",
-    "--convert-to",
-    "pdf",
-    "--outdir",
-    outputDir,
-    inputPath
-  ];
-
+  const args = ["--headless", "--convert-to", "pdf", "--outdir", outputDir, inputPath];
   await execFileAsync(SOFFICE_PATH, args, { windowsHide: true });
 
   const basename = path.basename(inputPath, path.extname(inputPath));
@@ -92,7 +83,6 @@ async function convertOfficeToPdf(inputPath, outputDir) {
   if (!(await fs.pathExists(outputPdf))) {
     throw new Error("LibreOffice não gerou o PDF intermediário.");
   }
-
   return outputPdf;
 }
 
@@ -111,10 +101,9 @@ async function buildPdfaDefFromTemplate(jobDir) {
 async function convertPdfToPdfA2b(inputPdf, outputPdf, renderedPdfaDefPath) {
   const args = [
     "-dPDFA=2",
-    "-dPDFACompatibilityPolicy=1", // CORREÇÃO: Força o Ghostscript a abortar/alertar se algo ferir o PDF/A
     "-dBATCH",
     "-dNOPAUSE",
-    "-dSAFER",
+    "-dNOSAFER", // Permite acessar o arquivo de cor do Windows
     "-sDEVICE=pdfwrite",
     "-sColorConversionStrategy=RGB",
     "-dAutoRotatePages=/None",
@@ -141,38 +130,20 @@ async function validateWithVeraPdf(pdfPath) {
   try {
     await ensureExecutableExists(VERAPDF_PATH, "veraPDF");
   } catch {
-    return {
-      available: false,
-      passed: null,
-      raw: "veraPDF não encontrado; validação pulada."
-    };
+    return { available: false, passed: null, raw: "veraPDF não encontrado; validação pulada." };
   }
 
   try {
-    const args = ["-f", "2b", "--format", "text", pdfPath];
-    const { stdout, stderr } = await execFileAsync(VERAPDF_PATH, args, { windowsHide: true });
+    const args = ["-f", "2b", "--format", "text", `"${pdfPath}"`];
+    const { stdout, stderr } = await execFileAsync(VERAPDF_PATH, args, { windowsHide: true, shell: true });
 
     const combined = `${stdout || ""}\n${stderr || ""}`;
-    const passed =
-      combined.includes("PASS") ||
-      combined.includes("PASSED") ||
-      combined.includes('isCompliant="true"');
+    const passed = combined.includes("PASS") || combined.includes("PASSED") || combined.includes('isCompliant="true"');
+    const failed = combined.includes("FAIL") || combined.includes('isCompliant="false"');
 
-    const failed =
-      combined.includes("FAIL") ||
-      combined.includes('isCompliant="false"');
-
-    return {
-      available: true,
-      passed: passed ? true : failed ? false : null,
-      raw: combined.trim()
-    };
+    return { available: true, passed: passed ? true : failed ? false : null, raw: combined.trim() };
   } catch (error) {
-    return {
-      available: true,
-      passed: false,
-      raw: error.stdout || error.stderr || error.message || "Falha na validação com veraPDF."
-    };
+    return { available: true, passed: false, raw: error.stdout || error.stderr || error.message || "Falha na validação com veraPDF." };
   }
 }
 
@@ -234,13 +205,15 @@ async function processOneFile(file, batchDir) {
     return result;
   } catch (error) {
     console.error(`\n🚨 ERRO CRÍTICO no processamento de "${originalName}":`, error.message);
+    if (error.stderr) console.error("   Detalhes do erro Ghostscript (stderr):", error.stderr); 
+    if (error.stdout) console.error("   Detalhes do erro Ghostscript (stdout):", error.stdout); 
+    
     result.status = "error";
     result.message = error.message || "Erro ao processar o arquivo.";
     return result;
   }
 }
 
-// CORREÇÃO: Removido o 'async' do construtor da Promise e envolvido a lógica assíncrona em um bloco auto-executável (IIFE).
 async function buildZipFromResults(results, batchDir) {
   const zipPath = path.join(batchDir, "resultado-lote.zip");
   const output = fs.createWriteStream(zipPath);
@@ -274,7 +247,6 @@ async function buildZipFromResults(results, batchDir) {
 
     archive.append(JSON.stringify(report, null, 2), { name: "report.json" });
 
-    // Lógica assíncrona executada com segurança
     (async () => {
       try {
         for (const item of results) {
@@ -333,9 +305,7 @@ app.post("/convert-batch", upload.array("files", 50), async (req, res) => {
     const zipPath = await buildZipFromResults(results, batchDir);
 
     res.download(zipPath, "lote-pdfa2b.zip", async (err) => {
-      if (err) {
-        console.error("Erro ao enviar ZIP:", err);
-      }
+      if (err) console.error("Erro ao enviar ZIP:", err);
 
       setTimeout(async () => {
         try {
@@ -350,17 +320,11 @@ app.post("/convert-batch", upload.array("files", 50), async (req, res) => {
 
     if (req.files?.length) {
       for (const file of req.files) {
-        try {
-          if (file.path && await fs.pathExists(file.path)) {
-            await fs.remove(file.path);
-          }
-        } catch {}
+        try { if (file.path && await fs.pathExists(file.path)) await fs.remove(file.path); } catch {}
       }
     }
 
-    if (batchDir && await fs.pathExists(batchDir)) {
-      await fs.remove(batchDir);
-    }
+    if (batchDir && await fs.pathExists(batchDir)) await fs.remove(batchDir);
 
     return res.status(500).json({
       error: error.message || "Erro interno ao processar o lote."
