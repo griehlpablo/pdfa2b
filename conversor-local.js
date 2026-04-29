@@ -24,6 +24,12 @@ const GS_PATH = "C:\\Program Files\\gs\\gs10.07.0\\bin\\gswin64c.exe";
 const VERAPDF_PATH = "C:\\Users\\Unespar\\verapdf\\verapdf.bat";
 const ICC_PROFILE_PATH = "C:\\Windows\\System32\\spool\\drivers\\color\\sRGB Color Space Profile.icm";
 
+const COLOR_CYAN = "\x1b[36m";
+const COLOR_GREEN = "\x1b[32m";
+const COLOR_RED = "\x1b[31m";
+const COLOR_YELLOW = "\x1b[33m";
+const COLOR_RESET = "\x1b[0m";
+
 const GRIEHL_LOGO = [
     "  ____ ____  ___ _____ _   _ _     ",
     " / ___|  _ \\|_ _| ____| | | | |    ",
@@ -74,39 +80,38 @@ async function buildPdfaDefFromTemplate() {
 }
 
 async function convertPdfToPdfA2b(inputPdf, outputPdf, renderedPdfaDefPath) {
-    // 1. PASSO DE LAVAGEM: Transforma o PDF problemático num PDF limpo e padrão
-    const tempCleanPdf = path.join(os.tmpdir(), `clean_${Date.now()}_${path.basename(inputPdf)}`);
-    const argsClean = [
+    // 1. PASSO DA FOTOCÓPIA DE TELA (O xeque-mate no CamScanner)
+    const tempRasterPdf = path.join(os.tmpdir(), `raster_${Date.now()}_${path.basename(inputPdf)}`);
+    const argsRasterize = [
         "-dBATCH", "-dNOPAUSE", "-dNOSAFER",
-        "-sDEVICE=pdfwrite",
-        "-dPrinted=true", // Força a remoção de marcações de tela/acessibilidade
-        "-sOutputFile=" + tempCleanPdf,
+        "-dPrinted=false",        // A MÁGICA 1: Lê como monitor (Força a foto do CamScanner a aparecer e evita tela branca)
+        "-dShowAnnots=true",      // Garante que tudo seja desenhado
+        "-sDEVICE=pdfimage24",    // A MÁGICA 2: Transforma tudo num bloco de pixels (Destrói o Marked Content tóxico)
+        "-r300",                  // Alta Qualidade (300 DPI) para o histórico ficar nítido
+        "-sOutputFile=" + tempRasterPdf,
         inputPdf
     ];
-    await execFileAsync(GS_PATH, argsClean, { windowsHide: true });
+    await execFileAsync(GS_PATH, argsRasterize, { windowsHide: true });
 
-    // 2. PASSO DE BLINDAGEM: Converte o PDF limpo para A-2b com rigor máximo!
+    // 2. PASSO DA BLINDAGEM: O arquivo agora é uma imagem pura sem metadados tóxicos.
     const argsA2b = [
         "-dPDFA=2", "-dBATCH", "-dNOPAUSE", "-dNOSAFER",
-        "-dPDFACompatibilityPolicy=2", // Voltamos com a regra rigorosa, pois o PDF agora está limpo!
-        "-sDEVICE=pdfwrite", "-sColorConversionStrategy=RGB",
-        "-dAutoRotatePages=/None", "-dEmbedAllFonts=true",
-        "-dSubsetFonts=true", "-dCompressFonts=true",
-        "-dDetectDuplicateImages=true",
+        "-dPDFACompatibilityPolicy=2", // RIGOR MÁXIMO
+        "-sDEVICE=pdfwrite", 
+        "-dProcessColorModel=/DeviceRGB",
+        "-sColorConversionStrategy=RGB", 
+        "-dAutoRotatePages=/None", 
         "-sOutputFile=" + outputPdf,
-        renderedPdfaDefPath, tempCleanPdf
+        renderedPdfaDefPath, tempRasterPdf
     ];
     
     try {
         await execFileAsync(GS_PATH, argsA2b, { windowsHide: true });
     } catch (error) {
-        const fileExists = await fs.pathExists(outputPdf);
-        if (!fileExists) {
-            throw error; 
-        }
+        await fs.remove(outputPdf).catch(() => {});
+        throw error; 
     } finally {
-        // Apaga o arquivo temporário "lavado" para não lotar seu disco
-        await fs.remove(tempCleanPdf).catch(() => {});
+        await fs.remove(tempRasterPdf).catch(() => {});
     }
 }
 
@@ -125,14 +130,14 @@ async function validateWithVeraPdf(pdfPath) {
 }
 
 async function processFiles() {
-    console.log("\x1b[36m%s\x1b[0m", GRIEHL_LOGO); 
+    console.log(`${COLOR_CYAN}%s${COLOR_RESET}`, GRIEHL_LOGO); 
     console.log(" Desenvolvido por: @griehl_");
-    console.log(" >> Conversor Automático PDF/A-2b <<\n");
+    console.log(" >> Conversor Automático PDF/A-2b (A Vitória Final) <<\n");
 
     const files = process.argv.slice(2);
     
     if (files.length === 0) {
-        console.log("Nenhum arquivo foi selecionado. Arraste arquivos para o atalho.");
+        console.log(`${COLOR_YELLOW}Nenhum arquivo foi selecionado. Arraste arquivos para o atalho.${COLOR_RESET}`);
         return;
     }
 
@@ -146,7 +151,7 @@ async function processFiles() {
         try {
             const ext = path.extname(file).toLowerCase();
             if (ext !== '.pdf') {
-                console.log(`❌ Ignorado (Não é PDF): ${path.basename(file)}`);
+                console.log(`${COLOR_YELLOW}❌ Ignorado (Não é PDF): ${path.basename(file)}${COLOR_RESET}`);
                 continue;
             }
 
@@ -157,24 +162,28 @@ async function processFiles() {
 
             fs.ensureDirSync(targetDir);
 
-            console.log(`⏳ Convertendo: ${originalName}.pdf`);
+            console.log(`⏳ Fotocopiando e Convertendo: ${originalName}.pdf`);
             await convertPdfToPdfA2b(file, outputPdfPath, renderedPdfaDefPath);
             
             console.log(`🔎 Validando com veraPDF...`);
-            await validateWithVeraPdf(outputPdfPath);
+            const { isValid } = await validateWithVeraPdf(outputPdfPath);
 
-            console.log(`✅ SUCESSO: Salvo em "pdf a2b\\${originalName}_A2B.pdf"`);
+            if (isValid) {
+                console.log(`${COLOR_GREEN}✅ SUCESSO: Salvo em "pdf a2b\\${originalName}_A2B.pdf"${COLOR_RESET}`);
+            } else {
+                console.log(`${COLOR_RED}⚠️ FALHA NA VALIDAÇÃO: O arquivo não passou no teste do VeraPDF.${COLOR_RESET}`);
+            }
             console.log("---------------------------------------------------");
             
         } catch (error) {
             let shortError = "Erro desconhecido na conversão.";
             
-            if (error.message.includes("GPL Ghostscript")) {
+            if (error.message) {
                 const lines = error.message.split('\n');
-                shortError = lines.find(line => line.includes('GPL Ghostscript')) || "Falha no motor Ghostscript.";
+                shortError = lines.find(line => line.includes('Error:') || line.includes('Unrecoverable error') || line.includes('GPL Ghostscript')) || "Falha no motor Ghostscript.";
             }
 
-            console.log(`🚨 ERRO CRÍTICO: ${shortError}`);
+            console.log(`${COLOR_RED}🚨 ERRO CRÍTICO: ${shortError}${COLOR_RESET}`);
             console.log("---------------------------------------------------");
             
             if (targetDir && originalName) {
