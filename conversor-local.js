@@ -20,6 +20,7 @@ const { promisify } = require("util");
 const execFileAsync = promisify(execFile);
 const execAsync = promisify(exec); 
 
+// Caminhos originais validados
 const GS_PATH = "C:\\Program Files\\gs\\gs10.07.0\\bin\\gswin64c.exe";
 const VERAPDF_PATH = "C:\\Users\\Unespar\\verapdf\\verapdf.bat";
 const ICC_PROFILE_PATH = "C:\\Windows\\System32\\spool\\drivers\\color\\sRGB Color Space Profile.icm";
@@ -80,29 +81,32 @@ async function buildPdfaDefFromTemplate() {
 }
 
 async function convertPdfToPdfA2b(inputPdf, outputPdf, renderedPdfaDefPath) {
-    // 1. PASSO DA FOTOCÓPIA DE TELA (O xeque-mate no CamScanner)
-    const tempRasterPdf = path.join(os.tmpdir(), `raster_${Date.now()}_${path.basename(inputPdf)}`);
-    const argsRasterize = [
+    // 1. PASSO DA DESCONTAMINAÇÃO TOTAL (O Fim da Tela Branca e dos Erros)
+    const tempPs = path.join(os.tmpdir(), `flatten_${Date.now()}_${path.basename(inputPdf, '.pdf')}.ps`);
+    const argsPs = [
         "-dBATCH", "-dNOPAUSE", "-dNOSAFER",
-        "-dPrinted=false",        // A MÁGICA 1: Lê como monitor (Força a foto do CamScanner a aparecer e evita tela branca)
-        "-dShowAnnots=true",      // Garante que tudo seja desenhado
-        "-sDEVICE=pdfimage24",    // A MÁGICA 2: Transforma tudo num bloco de pixels (Destrói o Marked Content tóxico)
-        "-r300",                  // Alta Qualidade (300 DPI) para o histórico ficar nítido
-        "-sOutputFile=" + tempRasterPdf,
+        "-sDEVICE=ps2write",    // Converte para PostScript puro. Isso EXTERMINA o Marked Content tóxico dos scanners!
+        "-dPrinted=false",      // Engana o CamScanner fingindo ser um monitor de PC
+        "-dShowAnnots=true",    // Força a imagem a ser pintada no papel permanentemente
+        "-dAutoRotatePages=/None",
+        "-sOutputFile=" + tempPs,
         inputPdf
     ];
-    await execFileAsync(GS_PATH, argsRasterize, { windowsHide: true });
+    await execFileAsync(GS_PATH, argsPs, { windowsHide: true });
 
-    // 2. PASSO DA BLINDAGEM: O arquivo agora é uma imagem pura sem metadados tóxicos.
+    // 2. PASSO DO CARIMBO OFICIAL: O arquivo agora está limpo. O Ghostscript não vai mais travar!
     const argsA2b = [
         "-dPDFA=2", "-dBATCH", "-dNOPAUSE", "-dNOSAFER",
-        "-dPDFACompatibilityPolicy=2", // RIGOR MÁXIMO
+        "-dPDFACompatibilityPolicy=2", // RIGOR MÁXIMO ATIVADO COM SUCESSO
         "-sDEVICE=pdfwrite", 
         "-dProcessColorModel=/DeviceRGB",
         "-sColorConversionStrategy=RGB", 
         "-dAutoRotatePages=/None", 
+        "-dEmbedAllFonts=true",
+        "-dSubsetFonts=true", 
+        "-dCompressFonts=true",
         "-sOutputFile=" + outputPdf,
-        renderedPdfaDefPath, tempRasterPdf
+        renderedPdfaDefPath, tempPs
     ];
     
     try {
@@ -111,7 +115,7 @@ async function convertPdfToPdfA2b(inputPdf, outputPdf, renderedPdfaDefPath) {
         await fs.remove(outputPdf).catch(() => {});
         throw error; 
     } finally {
-        await fs.remove(tempRasterPdf).catch(() => {});
+        await fs.remove(tempPs).catch(() => {});
     }
 }
 
@@ -132,7 +136,7 @@ async function validateWithVeraPdf(pdfPath) {
 async function processFiles() {
     console.log(`${COLOR_CYAN}%s${COLOR_RESET}`, GRIEHL_LOGO); 
     console.log(" Desenvolvido por: @griehl_");
-    console.log(" >> Conversor Automático PDF/A-2b (A Vitória Final) <<\n");
+    console.log(" >> Conversor Automático PDF/A-2b (O Exterminador Definitivo) <<\n");
 
     const files = process.argv.slice(2);
     
@@ -162,7 +166,7 @@ async function processFiles() {
 
             fs.ensureDirSync(targetDir);
 
-            console.log(`⏳ Fotocopiando e Convertendo: ${originalName}.pdf`);
+            console.log(`⏳ Sanatizando e Convertendo: ${originalName}.pdf`);
             await convertPdfToPdfA2b(file, outputPdfPath, renderedPdfaDefPath);
             
             console.log(`🔎 Validando com veraPDF...`);
